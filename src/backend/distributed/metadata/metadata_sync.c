@@ -1105,6 +1105,60 @@ CreateSchemaDDLCommand(Oid schemaId)
 	return schemaNameDef->data;
 }
 
+List *
+GrantOnSchemaDDLCommands(Oid schemaId)
+{
+	HeapTuple schemaTuple = SearchSysCache1(NAMESPACEOID, ObjectIdGetDatum(schemaId));
+	bool isNull = true;
+	Datum aclDatum = SysCacheGetAttr(NAMESPACEOID, schemaTuple, Anum_pg_namespace_nspacl, &isNull);
+	if (isNull)
+	{
+		ReleaseSysCache(schemaTuple);
+		return NIL;
+	}
+	Acl *acl = DatumGetAclPCopy(aclDatum);
+	Oid *members = NULL;
+	int memberNumber = aclmembers(acl, &members);
+	List *commands = NIL;
+	char *schemaName = get_namespace_name(schemaId);
+	AclItem *aclDat = ACL_DAT(acl);
+	int aclNum = ACL_NUM(acl);
+
+	//elog (WARNING, "whhahahthahthtahtatttt");
+	for (int i=0; i < memberNumber; i++)
+	{
+		// another function
+		//AclMode mask = aclmask_direct(acl, members[i], 10, ACL_ALL_RIGHTS_SCHEMA, ACLMASK_ALL); //// 10 ne!!!!!!!!!!!!!!!!!!!1
+		AclMode mask = 0;
+		for(int j=0; j<aclNum; j++) {
+			AclItem *aclItem = &aclDat[j];
+			if (aclItem->ai_grantee == members[i])
+			{
+				mask |= aclItem->ai_privs & ACL_ALL_RIGHTS_SCHEMA;
+			}
+		}
+		StringInfo grantOnSchema = makeStringInfo();
+		char *rolename = GetUserNameFromId(members[i], false); ///// false miiii!!!!!!!!!!!!
+		if ((mask & ACL_USAGE) && (mask & ACL_CREATE))
+		{
+			appendStringInfo(grantOnSchema, GRANT_ON_SCHEMA_QUERY, "USAGE, CREATE", schemaName, rolename); // quote names quote_identifier
+		}
+		else if (mask & ACL_USAGE)
+		{
+			appendStringInfo(grantOnSchema, GRANT_ON_SCHEMA_QUERY, "USAGE", schemaName, rolename);
+		}
+		else if (mask & ACL_CREATE)
+		{
+			appendStringInfo(grantOnSchema, GRANT_ON_SCHEMA_QUERY, "CREATE", schemaName, rolename);
+		}
+		//elog(WARNING, "%s", grantOnSchema->data);
+		commands = lappend(commands, grantOnSchema -> data);
+	}
+
+	ReleaseSysCache(schemaTuple);
+	return commands;
+}
+
 
 /*
  * TruncateTriggerCreateCommand creates a SQL query calling worker_create_truncate_trigger

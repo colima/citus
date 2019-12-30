@@ -77,6 +77,7 @@
 #define UPDATE_SHARD_STATISTICS_QUERY \
 	"SELECT master_update_shard_statistics(" INT64_FORMAT ")"
 #define PARTITION_METHOD_QUERY "SELECT part_method FROM master_get_table_metadata('%s');"
+#define GRANT_ON_SCHEMA_QUERY "GRANT %s ON SCHEMA %s TO %s"
 
 /* Enumeration that defines the shard placement policy to use while staging */
 typedef enum

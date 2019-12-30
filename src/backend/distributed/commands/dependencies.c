@@ -173,13 +173,15 @@ GetDependencyCreateDDLCommands(const ObjectAddress *dependency)
 		{
 			const char *schemaDDLCommand = CreateSchemaDDLCommand(dependency->objectId);
 
+			List * grantDDLCommands = GrantOnSchemaDDLCommands(dependency->objectId);
+
 			if (schemaDDLCommand == NULL)
 			{
 				/* no schema to create */
 				return NIL;
 			}
 
-			return list_make1((void *) schemaDDLCommand);
+			return lcons((void *) schemaDDLCommand, grantDDLCommands);
 		}
 
 		case OCLASS_TYPE:
