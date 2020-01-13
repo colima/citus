@@ -61,6 +61,7 @@ static char * SchemaOwnerName(Oid objectId);
 static bool HasMetadataWorkers(void);
 static List * DetachPartitionCommandList(void);
 static bool SyncMetadataSnapshotToNode(WorkerNode *workerNode, bool raiseOnError);
+static char * GenerateGrantOnSchemaQueryFromACL(Oid member, int aclNum, AclItem *aclDat, char * schemaName);
 
 PG_FUNCTION_INFO_V1(start_metadata_sync_to_node);
 PG_FUNCTION_INFO_V1(stop_metadata_sync_to_node);
@@ -1127,36 +1128,44 @@ GrantOnSchemaDDLCommands(Oid schemaId)
 	//elog (WARNING, "whhahahthahthtahtatttt");
 	for (int i=0; i < memberNumber; i++)
 	{
-		// another function
-		//AclMode mask = aclmask_direct(acl, members[i], 10, ACL_ALL_RIGHTS_SCHEMA, ACLMASK_ALL); //// 10 ne!!!!!!!!!!!!!!!!!!!1
-		AclMode mask = 0;
-		for(int j=0; j<aclNum; j++) {
-			AclItem *aclItem = &aclDat[j];
-			if (aclItem->ai_grantee == members[i])
-			{
-				mask |= aclItem->ai_privs & ACL_ALL_RIGHTS_SCHEMA;
-			}
-		}
-		StringInfo grantOnSchema = makeStringInfo();
-		char *rolename = GetUserNameFromId(members[i], false); ///// false miiii!!!!!!!!!!!!
-		if ((mask & ACL_USAGE) && (mask & ACL_CREATE))
-		{
-			appendStringInfo(grantOnSchema, GRANT_ON_SCHEMA_QUERY, "USAGE, CREATE", schemaName, rolename); // quote names quote_identifier
-		}
-		else if (mask & ACL_USAGE)
-		{
-			appendStringInfo(grantOnSchema, GRANT_ON_SCHEMA_QUERY, "USAGE", schemaName, rolename);
-		}
-		else if (mask & ACL_CREATE)
-		{
-			appendStringInfo(grantOnSchema, GRANT_ON_SCHEMA_QUERY, "CREATE", schemaName, rolename);
-		}
-		//elog(WARNING, "%s", grantOnSchema->data);
-		commands = lappend(commands, grantOnSchema -> data);
+		char * query = GenerateGrantOnSchemaQueryFromACL(members[i], aclNum, aclDat, schemaName);
+		commands = lappend(commands, query);
 	}
 
 	ReleaseSysCache(schemaTuple);
 	return commands;
+}
+
+
+static char *
+GenerateGrantOnSchemaQueryFromACL(Oid member, int aclNum, AclItem *aclDat, char * schemaName)
+{
+	// another function
+	//AclMode mask = aclmask_direct(acl, members[i], 10, ACL_ALL_RIGHTS_SCHEMA, ACLMASK_ALL); //// 10 ne!!!!!!!!!!!!!!!!!!!1
+	AclMode mask = 0;
+	for(int j=0; j<aclNum; j++) {
+		AclItem *aclItem = &aclDat[j];
+		if (aclItem->ai_grantee == member)
+		{
+			mask |= aclItem->ai_privs & ACL_ALL_RIGHTS_SCHEMA;
+		}
+	}
+	StringInfo grantOnSchema = makeStringInfo();
+	char *rolename = GetUserNameFromId(member, false); ///// false miiii!!!!!!!!!!!!
+	if ((mask & ACL_USAGE) && (mask & ACL_CREATE))
+	{
+		appendStringInfo(grantOnSchema, GRANT_ON_SCHEMA_QUERY, "USAGE, CREATE", quote_identifier(schemaName), quote_identifier(rolename)); // quote names quote_identifier
+	}
+	else if (mask & ACL_USAGE)
+	{
+		appendStringInfo(grantOnSchema, GRANT_ON_SCHEMA_QUERY, "USAGE", quote_identifier(schemaName), quote_identifier(rolename));
+	}
+	else if (mask & ACL_CREATE)
+	{
+		appendStringInfo(grantOnSchema, GRANT_ON_SCHEMA_QUERY, "CREATE", quote_identifier(schemaName), quote_identifier(rolename));
+	}
+	//elog(WARNING, "%s", grantOnSchema->data);
+	return grantOnSchema -> data;
 }
 
 

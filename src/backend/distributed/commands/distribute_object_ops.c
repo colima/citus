@@ -344,6 +344,13 @@ static DistributeObjectOps Schema_Drop = {
 	.postprocess = NULL,
 	.address = NULL,
 };
+static DistributeObjectOps Schema_Grant = {
+	.deparse = NULL,
+	.qualify = NULL,
+	.preprocess = PreprocessGrantSchemaStmt,
+	.postprocess = NULL,
+	.address = NULL,
+};
 static DistributeObjectOps Table_AlterTable = {
 	.deparse = NULL,
 	.qualify = NULL,
@@ -689,7 +696,19 @@ GetDistributeObjectOps(Node *node)
 
 		case T_GrantStmt:
 		{
-			return &Any_Grant;
+			GrantStmt *stmt = castNode(GrantStmt, node);
+			switch (stmt->objtype)
+			{
+				case OBJECT_SCHEMA:
+				{
+					return &Schema_Grant;
+				}
+
+				default:
+				{
+					return &Any_Grant;
+				}
+			}
 		}
 
 		case T_IndexStmt:

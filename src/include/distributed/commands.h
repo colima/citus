@@ -137,6 +137,7 @@ extern ObjectAddress AlterFunctionDependsStmtObjectAddress(Node *stmt,
 
 /* grant.c - forward declarations */
 extern List * PreprocessGrantStmt(Node *node, const char *queryString);
+extern List * PreprocessGrantSchemaStmt(Node *node, const char *queryString);
 
 
 /* index.c - forward declarations */
