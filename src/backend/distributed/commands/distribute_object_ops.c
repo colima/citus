@@ -345,9 +345,9 @@ static DistributeObjectOps Schema_Drop = {
 	.address = NULL,
 };
 static DistributeObjectOps Schema_Grant = {
-	.deparse = NULL,
+	.deparse = DeparseGrantOnSchemaStmt,
 	.qualify = NULL,
-	.preprocess = PreprocessGrantSchemaStmt,
+	.preprocess = PreprocessGrantOnSchemaStmt,
 	.postprocess = NULL,
 	.address = NULL,
 };

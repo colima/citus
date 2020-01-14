@@ -43,6 +43,7 @@
 #include "distributed/worker_transaction.h"
 #include "distributed/version_compat.h"
 #include "foreign/foreign.h"
+#include "miscadmin.h"
 #include "nodes/pg_list.h"
 #include "storage/lmgr.h"
 #include "utils/builtins.h"
@@ -61,7 +62,7 @@ static char * SchemaOwnerName(Oid objectId);
 static bool HasMetadataWorkers(void);
 static List * DetachPartitionCommandList(void);
 static bool SyncMetadataSnapshotToNode(WorkerNode *workerNode, bool raiseOnError);
-static char * GenerateGrantOnSchemaQueryFromACL(Oid member, int aclNum, AclItem *aclDat, char * schemaName);
+static List * GenerateGrantOnSchemaQueryFromACL(Oid memberOid, char * schemaName, int aclNum, AclItem *aclDat);
 
 PG_FUNCTION_INFO_V1(start_metadata_sync_to_node);
 PG_FUNCTION_INFO_V1(stop_metadata_sync_to_node);
@@ -1106,10 +1107,14 @@ CreateSchemaDDLCommand(Oid schemaId)
 	return schemaNameDef->data;
 }
 
+/*
+ * GrantOnSchemaDDLCommands creates a list of ddl command for replicating the permissions
+ * of roles on schemas.
+ */
 List *
-GrantOnSchemaDDLCommands(Oid schemaId)
+GrantOnSchemaDDLCommands(Oid schemaOid)
 {
-	HeapTuple schemaTuple = SearchSysCache1(NAMESPACEOID, ObjectIdGetDatum(schemaId));
+	HeapTuple schemaTuple = SearchSysCache1(NAMESPACEOID, ObjectIdGetDatum(schemaOid));
 	bool isNull = true;
 	Datum aclDatum = SysCacheGetAttr(NAMESPACEOID, schemaTuple, Anum_pg_namespace_nspacl, &isNull);
 	if (isNull)
@@ -1121,51 +1126,68 @@ GrantOnSchemaDDLCommands(Oid schemaId)
 	Oid *members = NULL;
 	int memberNumber = aclmembers(acl, &members);
 	List *commands = NIL;
-	char *schemaName = get_namespace_name(schemaId);
 	AclItem *aclDat = ACL_DAT(acl);
 	int aclNum = ACL_NUM(acl);
+	char * schemaName = get_namespace_name(schemaOid);
 
-	//elog (WARNING, "whhahahthahthtahtatttt");
 	for (int i=0; i < memberNumber; i++)
 	{
-		char * query = GenerateGrantOnSchemaQueryFromACL(members[i], aclNum, aclDat, schemaName);
-		commands = lappend(commands, query);
+		List * queries = GenerateGrantOnSchemaQueryFromACL(members[i], schemaName, aclNum, aclDat);
+		commands = list_concat(commands, queries);
 	}
+	commands = list_concat(commands, GenerateGrantOnSchemaQueryFromACL(0, schemaName, aclNum, aclDat));
 
 	ReleaseSysCache(schemaTuple);
 	return commands;
 }
 
-
-static char *
-GenerateGrantOnSchemaQueryFromACL(Oid member, int aclNum, AclItem *aclDat, char * schemaName)
+/*
+ * GenerateGrantOnSchemaQueryFromACL generates a query string for replicating a users permissions
+ * on a schema.
+ */
+List *
+GenerateGrantOnSchemaQueryFromACL(Oid memberOid, char * schemaName, int aclNum, AclItem *aclDat)
 {
-	// another function
-	//AclMode mask = aclmask_direct(acl, members[i], 10, ACL_ALL_RIGHTS_SCHEMA, ACLMASK_ALL); //// 10 ne!!!!!!!!!!!!!!!!!!!1
-	AclMode mask = 0;
+	AclMode permissions = ACL_NO_RIGHTS;
+	AclMode grants = ACL_NO_RIGHTS;
 	for(int j=0; j<aclNum; j++) {
 		AclItem *aclItem = &aclDat[j];
-		if (aclItem->ai_grantee == member)
+		if (aclItem->ai_grantee == memberOid)
 		{
-			mask |= aclItem->ai_privs & ACL_ALL_RIGHTS_SCHEMA;
+			permissions |= ACLITEM_GET_PRIVS(*aclItem) & ACL_ALL_RIGHTS_SCHEMA;
+			grants |= ACLITEM_GET_GOPTIONS(*aclItem) & ACL_ALL_RIGHTS_SCHEMA;
 		}
 	}
-	StringInfo grantOnSchema = makeStringInfo();
-	char *rolename = GetUserNameFromId(member, false); ///// false miiii!!!!!!!!!!!!
-	if ((mask & ACL_USAGE) && (mask & ACL_CREATE))
+	List * queries = NIL;
+	const char * quotedRoleName = quote_identifier(MappingUserName(memberOid));
+	const char * quotedSchemaName = quote_identifier(schemaName);
+	if (permissions & ACL_USAGE)
 	{
-		appendStringInfo(grantOnSchema, GRANT_ON_SCHEMA_QUERY, "USAGE, CREATE", quote_identifier(schemaName), quote_identifier(rolename)); // quote names quote_identifier
+		StringInfo buf = makeStringInfo();
+		appendStringInfo(buf,
+						 "GRANT USAGE ON SCHEMA %s TO %s",
+						 quotedSchemaName,
+						 quotedRoleName);
+		if (grants & ACL_USAGE)
+		{
+			appendStringInfo(buf, " WITH GRANT OPTION");
+		}
+		queries = lappend(queries, buf->data);
 	}
-	else if (mask & ACL_USAGE)
+	if (permissions & ACL_CREATE)
 	{
-		appendStringInfo(grantOnSchema, GRANT_ON_SCHEMA_QUERY, "USAGE", quote_identifier(schemaName), quote_identifier(rolename));
+		StringInfo buf = makeStringInfo();
+		appendStringInfo(buf,
+						 "GRANT CREATE ON SCHEMA %s TO %s",
+						 quotedSchemaName,
+						 quotedRoleName);
+		if (grants & ACL_CREATE)
+		{
+			appendStringInfo(buf, " WITH GRANT OPTION");
+		}
+		queries = lappend(queries, buf->data);
 	}
-	else if (mask & ACL_CREATE)
-	{
-		appendStringInfo(grantOnSchema, GRANT_ON_SCHEMA_QUERY, "CREATE", quote_identifier(schemaName), quote_identifier(rolename));
-	}
-	//elog(WARNING, "%s", grantOnSchema->data);
-	return grantOnSchema -> data;
+	return queries;
 }
 
 
