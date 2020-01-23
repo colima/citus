@@ -21,10 +21,12 @@
 #include "port.h"
 #include "storage/fd.h"
 
+#include "distributed/master_metadata_utility.h"
 #include "distributed/version_compat.h"
 
 PG_FUNCTION_INFO_V1(citus_stop_test_worker);
 PG_FUNCTION_INFO_V1(citus_start_test_worker);
+
 
 /*
  * Invokes pg_ctl stop for the worker using the given port.
@@ -32,6 +34,8 @@ PG_FUNCTION_INFO_V1(citus_start_test_worker);
 Datum
 citus_stop_test_worker(PG_FUNCTION_ARGS)
 {
+	EnsureSuperUser();
+
 	int port = PG_GETARG_INT32(0);
 
 	StringInfoData commandString;
@@ -48,6 +52,8 @@ citus_stop_test_worker(PG_FUNCTION_ARGS)
 Datum
 citus_start_test_worker(PG_FUNCTION_ARGS)
 {
+	EnsureSuperUser();
+
 	int port = PG_GETARG_INT32(0);
 	const int fileFlags = O_RDONLY;
 	const int fileMode = S_IRUSR;
