@@ -28,6 +28,7 @@
 
 /* private function declarations */
 static bool IsVarNode(Node *node);
+static bool IsParam(Node *node);
 static Expr * citus_evaluate_expr(Expr *expr, Oid result_type, int32 result_typmod,
 								  Oid result_collation,
 								  MasterEvaluationContext *masterEvaluationContext);
@@ -48,7 +49,7 @@ RequiresMasterEvaluation(Query *query)
 
 
 /*
- * ExecuteMasterEvaluableFunctions evaluates expressions and external parameters
+ * ExecuteMasterEvaluableFunctionsAndParameters evaluates expressions and parameters
  * that can be resolved to a constant.
  */
 void
@@ -57,8 +58,7 @@ ExecuteMasterEvaluableFunctionsAndParameters(Query *query, PlanState *planState)
 	MasterEvaluationContext masterEvaluationContext;
 
 	masterEvaluationContext.planState = planState;
-	masterEvaluationContext.evaluateParams = true;
-	masterEvaluationContext.evaluateFunctions = true;
+	masterEvaluationContext.evaluationMode = EvaluateFunctionsAndParams;
 
 	PartiallyEvaluateExpression((Node *) query, &masterEvaluationContext);
 }
@@ -74,8 +74,8 @@ ExecuteMasterEvaluableParameters(Query *query, PlanState *planState)
 	MasterEvaluationContext masterEvaluationContext;
 
 	masterEvaluationContext.planState = planState;
-	masterEvaluationContext.evaluateParams = true;
-	masterEvaluationContext.evaluateFunctions = false;
+	masterEvaluationContext.evaluationMode = EvaluateParams;
+
 
 	PartiallyEvaluateExpression((Node *) query, &masterEvaluationContext);
 }
@@ -116,6 +116,18 @@ PartiallyEvaluateExpression(Node *expression,
 	{
 		if (FindNodeCheck(expression, IsVarNode))
 		{
+			return (Node *) expression_tree_mutator(expression,
+													PartiallyEvaluateExpression,
+													masterEvaluationContext);
+		}
+		else if (masterEvaluationContext &&
+				 masterEvaluationContext->evaluationMode == EvaluateParams &&
+				 FindNodeCheck(expression, IsParam))
+		{
+			/*
+			 * If the caller prefers to evaluate params, go deeper in the expression
+			 * tree. Params can only exists in the leaves of the expression trees.
+			 */
 			return (Node *) expression_tree_mutator(expression,
 													PartiallyEvaluateExpression,
 													masterEvaluationContext);
@@ -186,6 +198,16 @@ IsVarNode(Node *node)
 
 
 /*
+ * IsVarNode returns whether a node is a Param.
+ */
+static bool
+IsParam(Node *node)
+{
+	return IsA(node, Param);
+}
+
+
+/*
  * a copy of pg's evaluate_expr, pre-evaluate a constant expression
  *
  * We use the executor's routine ExecEvalExpr() to avoid duplication of
@@ -213,13 +235,13 @@ citus_evaluate_expr(Expr *expr, Oid result_type, int32 result_typmod,
 
 		if (IsA(expr, Param))
 		{
-			if (!masterEvaluationContext->evaluateParams)
+			if (masterEvaluationContext->evaluationMode == EvaluateNone)
 			{
 				/* bail out, the caller doesn't want params to be evaluated  */
 				return expr;
 			}
 		}
-		else if (!masterEvaluationContext->evaluateFunctions)
+		else if (masterEvaluationContext->evaluationMode != EvaluateFunctionsAndParams)
 		{
 			/* should only get here for node types we should evaluate */
 			Assert(ShouldEvaluateExpressionType(nodeTag(expr)));

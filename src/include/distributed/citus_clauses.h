@@ -16,6 +16,14 @@
 #include "nodes/parsenodes.h"
 
 
+typedef enum MasterEvaluationMode
+{
+	EvaluateNone = 0,
+
+	EvaluateParams,
+	EvaluateFunctionsAndParams
+} MasterEvaluationMode;
+
 /*
  * This struct is used to pass information to master
  * evaluation logic.
@@ -23,8 +31,7 @@
 typedef struct MasterEvaluationContext
 {
 	PlanState *planState;
-	bool evaluateParams;
-	bool evaluateFunctions;
+	MasterEvaluationMode evaluationMode;
 } MasterEvaluationContext;
 
 
