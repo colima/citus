@@ -620,9 +620,19 @@ SELECT * FROM
 		a_inner)
 AS foo;
 
-DROP TABLE subquery_pruning_varchar_test_table;
-
 RESET citus.enable_router_execution;
+
+-- Test https://github.com/citusdata/citus/issues/3424
+WITH cte_1 AS (SELECT max(b) FROM subquery_pruning_varchar_test_table)
+SELECT a FROM (
+    SELECT a, random()
+    FROM subquery_pruning_varchar_test_table
+    JOIN cte_1 ON a = max::text
+    GROUP BY a HAVING max(b) > (SELECT max(b) FROM cte_1)
+    LIMIT 1
+) as foo;
+
+DROP TABLE subquery_pruning_varchar_test_table;
 
 -- Simple join subquery pushdown
 SELECT
